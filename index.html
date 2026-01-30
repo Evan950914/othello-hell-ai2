@@ -2,138 +2,178 @@
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
-<title>子彈倒賣交易系統</title>
+<title>彈藥交易系統 PRO+</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
-body { font-family: Arial; background:#121212; color:#fff; padding:20px; }
-h1 { color:#00ffcc; }
+body { font-family: Arial; background:#0d1117; color:#e6edf3; padding:20px; }
+h1 { color:#58a6ff; }
 table { border-collapse: collapse; width:100%; margin-top:15px; }
-th, td { border:1px solid #333; padding:8px; text-align:center; }
-th { background:#222; }
-input { width:80px; padding:4px; }
-button { padding:6px 12px; margin:5px; cursor:pointer; }
-.profit { color:#00ff66; font-weight:bold; }
-.loss { color:#ff4d4d; font-weight:bold; }
-.summary { margin-top:15px; font-size:18px; }
+th, td { border:1px solid #30363d; padding:8px; text-align:center; }
+th { background:#161b22; }
+input, select { width:100px; padding:4px; background:#0d1117; color:white; border:1px solid #30363d; }
+button { padding:6px 12px; margin:5px; cursor:pointer; background:#238636; color:white; border:none; }
+.sellBtn { background:#da3633; }
+.loss { color:#ff6b6b; font-weight:bold; }
+.profit { color:#3fb950; font-weight:bold; }
+.summary { margin-top:20px; font-size:18px; }
+canvas { background:#111; margin-top:20px; }
 </style>
 </head>
 <body>
 
-<h1>🔫 子彈倒賣交易系統</h1>
+<h1>📈 彈藥交易系統 PRO+</h1>
 
 交易稅率: <input type="number" id="taxRate" value="10"> %
 
-<table id="tradeTable">
+<h2>➕ 買進</h2>
+<select id="ammoSelect">
+  <option>7.62x39 BP</option>
+  <option>7.62x39 AP</option>
+  <option>5.45x39 BS</option>
+  <option>5.8x42 DBP10</option>
+  <option>6.8x51 Hybrid</option>
+  <option>.300 Blackout</option>
+</select>
+買進單價：<input type="number" id="buyPrice">
+數量：<input type="number" id="buyQty">
+<button onclick="addBuy()">買進</button>
+
+<h2>📦 持倉總覽</h2>
+<table id="portfolio">
 <thead>
 <tr>
-<th>子彈</th><th>買價</th><th>數量</th><th>成本</th>
-<th>賣價</th><th>收入</th><th>利潤</th><th>不虧本價</th><th>刪除</th>
+<th>子彈</th><th>數量</th><th>平均成本</th>
+<th>現價</th><th>市值</th><th>未實現損益</th><th>報酬率</th><th>賣出</th>
 </tr>
 </thead>
 <tbody></tbody>
 </table>
 
-<button onclick="addRow()">➕ 新增交易</button>
-<button onclick="saveData()">💾 儲存</button>
-<button onclick="clearData()">🗑️ 清空</button>
-
 <div class="summary">
-總投入成本：<span id="totalCost">0</span>  
-總利潤：<span id="totalProfit">0</span>
+總市值：<span id="totalValue">0</span>　
+未實現損益：<span id="totalUnrealized">0</span>　
+已實現損益：<span id="realizedPnL">0</span>
 </div>
 
+<h2>📊 價格走勢圖</h2>
+<select id="chartSelect" onchange="drawChart()"></select>
+<canvas id="priceChart" height="100"></canvas>
+
 <script>
-function addRow(data={}) {
-    const tbody = document.querySelector("#tradeTable tbody");
-    const row = document.createElement("tr");
+let portfolio = JSON.parse(localStorage.getItem("ammoPortfolio")||"{}");
+let realizedPnL = parseFloat(localStorage.getItem("realizedPnL")||"0");
+let priceHistory = JSON.parse(localStorage.getItem("priceHistory")||"{}");
+let chart;
 
-    row.innerHTML = `
-        <td><input value="${data.name||""}"></td>
-        <td><input type="number" value="${data.buy||0}"></td>
-        <td><input type="number" value="${data.qty||0}"></td>
-        <td>0</td>
-        <td><input type="number" value="${data.sell||0}"></td>
-        <td>0</td>
-        <td>0</td>
-        <td>0</td>
-        <td><button onclick="deleteRow(this)">❌</button></td>
-    `;
-
-    tbody.appendChild(row);
-    row.querySelectorAll("input").forEach(input =>
-        input.addEventListener("input", () => calculateAll())
-    );
-
-    calculateAll();
+function save(){
+    localStorage.setItem("ammoPortfolio",JSON.stringify(portfolio));
+    localStorage.setItem("realizedPnL",realizedPnL);
+    localStorage.setItem("priceHistory",JSON.stringify(priceHistory));
 }
 
-function deleteRow(btn){
-    btn.parentElement.parentElement.remove();
-    calculateAll();
+function addBuy(){
+    const name = ammoSelect.value;
+    const price = parseFloat(buyPrice.value)||0;
+    const qty = parseFloat(buyQty.value)||0;
+    if(!portfolio[name]) portfolio[name]={qty:0, cost:0, price:0};
+    portfolio[name].cost += price*qty;
+    portfolio[name].qty += qty;
+    save(); render();
 }
 
-function calculateAll(){
-    const tax = document.getElementById("taxRate").value / 100;
-    let totalCost=0, totalProfit=0;
-    let holdings = {};
+function sellAmmo(name){
+    const qty = parseFloat(prompt("賣出數量："))||0;
+    const sellPrice = parseFloat(prompt("賣出單價："))||0;
+    const tax = taxRate.value/100;
+    const p = portfolio[name];
+    if(qty<=0 || qty>p.qty) return alert("數量錯誤");
 
-    document.querySelectorAll("#tradeTable tbody tr").forEach(row=>{
-        const name=row.cells[0].children[0].value;
-        const buy=parseFloat(row.cells[1].children[0].value)||0;
-        const qty=parseFloat(row.cells[2].children[0].value)||0;
-        const sell=parseFloat(row.cells[4].children[0].value)||0;
+    const avgCost = p.cost/p.qty;
+    const revenue = sellPrice*qty*(1-tax);
+    const cost = avgCost*qty;
+    const pnl = revenue - cost;
 
-        const cost=buy*qty;
-        const income=sell*qty*(1-tax);
-        const profit=income-cost;
-        const breakEven=qty>0?cost/(qty*(1-tax)):0;
+    realizedPnL += pnl;
+    p.qty -= qty;
+    p.cost -= cost;
+    if(p.qty<=0) delete portfolio[name];
 
-        row.cells[3].innerText=cost.toFixed(0);
-        row.cells[5].innerText=income.toFixed(0);
-        row.cells[6].innerText=profit.toFixed(0);
-        row.cells[7].innerText=breakEven.toFixed(2);
-        row.cells[6].className=profit>=0?"profit":"loss";
+    save(); render();
+}
 
-        totalCost+=cost;
-        totalProfit+=profit;
+function updatePrice(name,price){
+    price=parseFloat(price)||0;
+    portfolio[name].price=price;
 
-        if(name){
-            if(!holdings[name]) holdings[name]={cost:0, qty:0};
-            holdings[name].cost+=cost;
-            holdings[name].qty+=qty;
+    if(!priceHistory[name]) priceHistory[name]=[];
+    priceHistory[name].push({time:new Date().toLocaleTimeString(), price});
+    save(); render(); drawChart();
+}
+
+function render(){
+    const tbody=document.querySelector("#portfolio tbody");
+    const chartSelect=document.getElementById("chartSelect");
+    tbody.innerHTML=""; chartSelect.innerHTML="";
+    const tax = taxRate.value/100;
+    let totalValue=0,totalUnrealized=0;
+
+    for(const name in portfolio){
+        const p=portfolio[name];
+        const avg=p.cost/p.qty;
+        const value=p.price*p.qty*(1-tax);
+        const pnl=value-p.cost;
+        const roi=(pnl/p.cost)*100;
+
+        totalValue+=value;
+        totalUnrealized+=pnl;
+
+        tbody.innerHTML+=`
+        <tr>
+          <td>${name}</td>
+          <td>${p.qty}</td>
+          <td>${avg.toFixed(2)}</td>
+          <td><input type="number" value="${p.price}" onchange="updatePrice('${name}',this.value)"></td>
+          <td>${value.toFixed(0)}</td>
+          <td class="${pnl>=0?'profit':'loss'}">${pnl.toFixed(0)}</td>
+          <td class="${roi>=0?'profit':'loss'}">${roi.toFixed(1)}%</td>
+          <td><button class="sellBtn" onclick="sellAmmo('${name}')">賣出</button></td>
+        </tr>`;
+
+        chartSelect.innerHTML += `<option value="${name}">${name}</option>`;
+    }
+
+    totalValueSpan.innerText=totalValue.toFixed(0);
+    totalUnrealizedSpan.innerText=totalUnrealized.toFixed(0);
+    realizedSpan.innerText=realizedPnL.toFixed(0);
+}
+
+function drawChart(){
+    const name = chartSelect.value;
+    if(!priceHistory[name]) return;
+    const labels = priceHistory[name].map(p=>p.time);
+    const data = priceHistory[name].map(p=>p.price);
+
+    if(chart) chart.destroy();
+    chart = new Chart(document.getElementById("priceChart"), {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: name+" 價格走勢",
+                data: data,
+                borderColor: '#58a6ff',
+                fill: false,
+                tension: 0.1
+            }]
         }
     });
-
-    document.getElementById("totalCost").innerText=totalCost.toFixed(0);
-    document.getElementById("totalProfit").innerText=totalProfit.toFixed(0);
-
-    console.log("📦 平均持倉成本", holdings);
 }
 
-function saveData(){
-    const rows=[];
-    document.querySelectorAll("#tradeTable tbody tr").forEach(row=>{
-        rows.push({
-            name:row.cells[0].children[0].value,
-            buy:row.cells[1].children[0].value,
-            qty:row.cells[2].children[0].value,
-            sell:row.cells[4].children[0].value
-        });
-    });
-    localStorage.setItem("ammoTrades", JSON.stringify(rows));
-    alert("已儲存！");
-}
+const totalValueSpan=document.getElementById("totalValue");
+const totalUnrealizedSpan=document.getElementById("totalUnrealized");
+const realizedSpan=document.getElementById("realizedPnL");
 
-function loadData(){
-    const data=JSON.parse(localStorage.getItem("ammoTrades")||"[]");
-    data.forEach(d=>addRow(d));
-}
-
-function clearData(){
-    localStorage.removeItem("ammoTrades");
-    location.reload();
-}
-
-loadData();
+render();
 </script>
 </body>
 </html>
