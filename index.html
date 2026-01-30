@@ -1,14 +1,139 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="zh-TW">
 <head>
-    <meta charset="UTF-8">
-    <title>地獄級黑白棋 AI</title>
-    <link rel="stylesheet" href="othello-style.css">
+<meta charset="UTF-8">
+<title>子彈倒賣交易系統</title>
+<style>
+body { font-family: Arial; background:#121212; color:#fff; padding:20px; }
+h1 { color:#00ffcc; }
+table { border-collapse: collapse; width:100%; margin-top:15px; }
+th, td { border:1px solid #333; padding:8px; text-align:center; }
+th { background:#222; }
+input { width:80px; padding:4px; }
+button { padding:6px 12px; margin:5px; cursor:pointer; }
+.profit { color:#00ff66; font-weight:bold; }
+.loss { color:#ff4d4d; font-weight:bold; }
+.summary { margin-top:15px; font-size:18px; }
+</style>
 </head>
 <body>
-    <h1>地獄級黑白棋 AI</h1>
-    <div id="score">評分：AI 正在評估中...</div>
-    <div id="board"></div>
-    <script src="othello-hell-ai.js"></script>
+
+<h1>🔫 子彈倒賣交易系統</h1>
+
+交易稅率: <input type="number" id="taxRate" value="10"> %
+
+<table id="tradeTable">
+<thead>
+<tr>
+<th>子彈</th><th>買價</th><th>數量</th><th>成本</th>
+<th>賣價</th><th>收入</th><th>利潤</th><th>不虧本價</th><th>刪除</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
+
+<button onclick="addRow()">➕ 新增交易</button>
+<button onclick="saveData()">💾 儲存</button>
+<button onclick="clearData()">🗑️ 清空</button>
+
+<div class="summary">
+總投入成本：<span id="totalCost">0</span>  
+總利潤：<span id="totalProfit">0</span>
+</div>
+
+<script>
+function addRow(data={}) {
+    const tbody = document.querySelector("#tradeTable tbody");
+    const row = document.createElement("tr");
+
+    row.innerHTML = `
+        <td><input value="${data.name||""}"></td>
+        <td><input type="number" value="${data.buy||0}"></td>
+        <td><input type="number" value="${data.qty||0}"></td>
+        <td>0</td>
+        <td><input type="number" value="${data.sell||0}"></td>
+        <td>0</td>
+        <td>0</td>
+        <td>0</td>
+        <td><button onclick="deleteRow(this)">❌</button></td>
+    `;
+
+    tbody.appendChild(row);
+    row.querySelectorAll("input").forEach(input =>
+        input.addEventListener("input", () => calculateAll())
+    );
+
+    calculateAll();
+}
+
+function deleteRow(btn){
+    btn.parentElement.parentElement.remove();
+    calculateAll();
+}
+
+function calculateAll(){
+    const tax = document.getElementById("taxRate").value / 100;
+    let totalCost=0, totalProfit=0;
+    let holdings = {};
+
+    document.querySelectorAll("#tradeTable tbody tr").forEach(row=>{
+        const name=row.cells[0].children[0].value;
+        const buy=parseFloat(row.cells[1].children[0].value)||0;
+        const qty=parseFloat(row.cells[2].children[0].value)||0;
+        const sell=parseFloat(row.cells[4].children[0].value)||0;
+
+        const cost=buy*qty;
+        const income=sell*qty*(1-tax);
+        const profit=income-cost;
+        const breakEven=qty>0?cost/(qty*(1-tax)):0;
+
+        row.cells[3].innerText=cost.toFixed(0);
+        row.cells[5].innerText=income.toFixed(0);
+        row.cells[6].innerText=profit.toFixed(0);
+        row.cells[7].innerText=breakEven.toFixed(2);
+        row.cells[6].className=profit>=0?"profit":"loss";
+
+        totalCost+=cost;
+        totalProfit+=profit;
+
+        if(name){
+            if(!holdings[name]) holdings[name]={cost:0, qty:0};
+            holdings[name].cost+=cost;
+            holdings[name].qty+=qty;
+        }
+    });
+
+    document.getElementById("totalCost").innerText=totalCost.toFixed(0);
+    document.getElementById("totalProfit").innerText=totalProfit.toFixed(0);
+
+    console.log("📦 平均持倉成本", holdings);
+}
+
+function saveData(){
+    const rows=[];
+    document.querySelectorAll("#tradeTable tbody tr").forEach(row=>{
+        rows.push({
+            name:row.cells[0].children[0].value,
+            buy:row.cells[1].children[0].value,
+            qty:row.cells[2].children[0].value,
+            sell:row.cells[4].children[0].value
+        });
+    });
+    localStorage.setItem("ammoTrades", JSON.stringify(rows));
+    alert("已儲存！");
+}
+
+function loadData(){
+    const data=JSON.parse(localStorage.getItem("ammoTrades")||"[]");
+    data.forEach(d=>addRow(d));
+}
+
+function clearData(){
+    localStorage.removeItem("ammoTrades");
+    location.reload();
+}
+
+loadData();
+</script>
 </body>
 </html>
